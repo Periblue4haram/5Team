@@ -15,6 +15,7 @@ import {
   getUser,
   isExpired,
   participantNamesOf,
+  syncFundingsFromServer,
   updateLastLocation,
 } from '../../store/actions'
 import { distanceKm, type LatLng } from '../../lib/geo'
@@ -37,6 +38,14 @@ export default function Home() {
     setLocating(true)
     setRefreshTick((n) => n + 1)
   }
+
+  useEffect(() => {
+    void syncFundingsFromServer(
+      myLocation
+        ? { lat: myLocation.lat, lng: myLocation.lng, radiusKm: 50 }
+        : { lat: CAMPUS_CENTER.lat, lng: CAMPUS_CENTER.lng, radiusKm: 50 },
+    )
+  }, [myLocation?.lat, myLocation?.lng, refreshTick])
 
   useEffect(() => {
     let cancelled = false

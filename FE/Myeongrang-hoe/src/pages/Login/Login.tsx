@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { applyServerUser, loginAsTestAccount, loginWithPassword } from '../../store/actions'
-import { loginWithApi, sendVerificationCode, verifyEmailCode } from '../../lib/api'
+import { loginWithApi, sendVerificationCode, setAccessToken, verifyEmailCode } from '../../lib/api'
 import { TEST_ACCOUNTS } from '../../store/schema'
 import { patchDraft } from '../../store/signupDraft'
 
@@ -35,12 +35,13 @@ export default function Login() {
     setLoginError('')
     setLoggingIn(true)
     try {
-      const user = await loginWithApi(normalizedEmail, password)
+      const { user } = await loginWithApi(normalizedEmail, password)
       applyServerUser(user, { password, setCurrent: true })
       navigate('/')
     } catch (error) {
       // Fallback: local seed accounts when backend is offline
       if (loginWithPassword(normalizedEmail, password)) {
+        setAccessToken(null)
         navigate('/')
         return
       }
@@ -51,6 +52,7 @@ export default function Login() {
   }
 
   function handleTestLogin(key: keyof typeof TEST_ACCOUNTS) {
+    setAccessToken(null)
     loginAsTestAccount(TEST_ACCOUNTS[key])
     navigate('/')
   }

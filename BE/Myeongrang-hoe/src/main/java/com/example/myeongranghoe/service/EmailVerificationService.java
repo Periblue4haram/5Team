@@ -1,9 +1,12 @@
 package com.example.myeongranghoe.service;
 
+import com.example.myeongranghoe.config.MailProperties;
 import com.example.myeongranghoe.domain.EmailVerification;
 import com.example.myeongranghoe.repository.EmailVerificationRepository;
 import com.example.myeongranghoe.repository.UserAccountRepository;
 import jakarta.mail.internet.MimeMessage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
@@ -18,6 +21,7 @@ import java.util.Random;
 
 @Service
 public class EmailVerificationService {
+    private static final Logger log = LoggerFactory.getLogger(EmailVerificationService.class);
     private static final int CODE_TTL_MINUTES = 5;
     private static final int VERIFIED_TTL_MINUTES = 30;
 
@@ -25,6 +29,7 @@ public class EmailVerificationService {
     private final EmailVerificationRepository emailVerificationRepository;
     private final UserAccountRepository userAccountRepository;
     private final PasswordEncoder passwordEncoder;
+    private final MailProperties mailProperties;
     private final String mailUsername;
     private final String mailPassword;
     private final Random random = new Random();
@@ -34,14 +39,27 @@ public class EmailVerificationService {
             EmailVerificationRepository emailVerificationRepository,
             UserAccountRepository userAccountRepository,
             PasswordEncoder passwordEncoder,
+            MailProperties mailProperties,
             @Value("${spring.mail.username:}") String mailUsername,
             @Value("${spring.mail.password:}") String mailPassword) {
         this.javaMailSender = javaMailSender;
         this.emailVerificationRepository = emailVerificationRepository;
         this.userAccountRepository = userAccountRepository;
         this.passwordEncoder = passwordEncoder;
-        this.mailUsername = mailUsername;
-        this.mailPassword = mailPassword;
+        this.mailProperties = mailProperties;
+        this.mailUsername = mailUsername == null ? "" : mailUsername.trim();
+        this.mailPassword = mailPassword == null ? "" : mailPassword.trim();
+    }
+
+    public boolean isSmtpConfigured() {
+        return hasSmtpCredentials();
+    }
+
+    public String resolveFromAddress() {
+        if (mailProperties.getFrom() != null && !mailProperties.getFrom().isBlank()) {
+            return mailProperties.getFrom().trim();
+        }
+        return mailUsername;
     }
 
     @Transactional
@@ -64,12 +82,12 @@ public class EmailVerificationService {
         emailVerificationRepository.save(verification);
 
         boolean delivered = sendMail(normalizedEmail, code);
-        boolean exposeCode = !delivered;
+        boolean exposeCode = !delivered && mailProperties.isExposeCodeWhenUndelivered();
         String message = delivered
-                ? "인증번호를 메일로 전송했어요."
+                ? "인증번호를 메일로 전송했어요. 메일함을 확인해주세요."
                 : (hasSmtpCredentials()
-                    ? "인증번호를 생성했지만 메일 전송에 실패했어요. SMTP 설정을 다시 확인해주세요."
-                    : "인증번호를 생성했어요. 현재는 SMTP 인증 정보가 없어 개발 모드로 응답하고 있습니다. MAIL_USERNAME와 MAIL_PASSWORD를 설정하면 실제 메일이 발송됩니다.");
+                    ? "인증번호를 생성했지만 메일 전송에 실패했어요. SMTP 설정(MAIL_USERNAME/MAIL_PASSWORD)을 다시 확인해주세요."
+                    : "인증번호를 생성했어요. SMTP 미설정 개발 모드입니다. MAIL_USERNAME·MAIL_PASSWORD를 설정하면 실제 메일이 발송됩니다.");
         return new VerificationResult(
                 exposeCode ? code : null,
                 delivered,
@@ -126,26 +144,36 @@ public class EmailVerificationService {
 
     private boolean sendMail(String email, String code) {
         if (!hasSmtpCredentials()) {
+            log.info("SMTP not configured — dev mode OTP for {}", email);
+            return false;
+        }
+
+        String from = resolveFromAddress();
+        if (from == null || from.isBlank()) {
+            log.warn("SMTP username/from is empty — cannot send mail");
             return false;
         }
 
         try {
             MimeMessage message = javaMailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setFrom(from);
             helper.setTo(email);
             helper.setSubject("[명랑회] 학교 이메일 인증번호");
             helper.setText(
-                    "<div style=\"font-family: Arial, sans-serif;\">"
-                            + "<p>안녕하세요. 명랑회 인증번호는 아래와 같습니다.</p>"
-                            + "<h2 style=\"color:#116AD4\">" + code + "</h2>"
-                            + "<p>5분 안에 입력해주세요.</p>"
+                    "<div style=\"font-family: Arial, sans-serif; line-height:1.5;\">"
+                            + "<p>안녕하세요. <strong>명랑회</strong> 이메일 인증번호입니다.</p>"
+                            + "<h2 style=\"color:#116AD4; letter-spacing:4px;\">" + code + "</h2>"
+                            + "<p>인증번호는 <strong>" + CODE_TTL_MINUTES + "분</strong> 안에 입력해주세요.</p>"
+                            + "<p style=\"color:#888; font-size:12px;\">본인이 요청하지 않았다면 이 메일을 무시하세요.</p>"
                             + "</div>",
                     true
             );
             javaMailSender.send(message);
+            log.info("Verification mail delivered to {}", email);
             return true;
         } catch (Exception ex) {
-            System.out.printf("Email send failed for %s: %s%n", email, ex.getMessage());
+            log.warn("Email send failed for {}: {}", email, ex.getMessage());
             return false;
         }
     }

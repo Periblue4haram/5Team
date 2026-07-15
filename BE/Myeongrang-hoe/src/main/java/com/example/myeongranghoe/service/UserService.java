@@ -84,6 +84,43 @@ public class UserService {
         return UserResponse.from(user);
     }
 
+    @Transactional(readOnly = true)
+    public UserResponse getByEmail(String email) {
+        return UserResponse.from(require(email));
+    }
+
+    @Transactional
+    public UserResponse updateProfile(String email, ProfilePatch patch) {
+        UserAccount user = require(email);
+        if (patch.name() != null && !patch.name().isBlank()) {
+            user.setName(patch.name().trim());
+        }
+        if (patch.campus() != null) {
+            if (!ALLOWED_CAMPUSES.contains(patch.campus())) {
+                throw new IllegalArgumentException("캠퍼스는 인문캠퍼스 또는 자연캠퍼스만 가능해요.");
+            }
+            user.setCampus(patch.campus());
+        }
+        if (patch.major() != null) {
+            user.setMajor(patch.major().trim());
+        }
+        if (patch.age() != null) {
+            user.setAge(patch.age().trim());
+        }
+        if (patch.bio() != null) {
+            user.setBio(patch.bio().trim());
+        }
+        if (patch.interests() != null) {
+            user.setInterests(sanitizeInterests(patch.interests()));
+        }
+        return UserResponse.from(userAccountRepository.save(user));
+    }
+
+    private UserAccount require(String email) {
+        return userAccountRepository.findByEmail(normalize(email))
+                .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없어요."));
+    }
+
     private static String normalize(String email) {
         return email.trim().toLowerCase(Locale.ROOT);
     }
@@ -106,6 +143,15 @@ public class UserService {
     public record SignUpCommand(
             String email,
             String password,
+            String name,
+            String campus,
+            String major,
+            String age,
+            String bio,
+            List<String> interests
+    ) {}
+
+    public record ProfilePatch(
             String name,
             String campus,
             String major,

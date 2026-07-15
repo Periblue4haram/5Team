@@ -1,6 +1,7 @@
 package com.example.myeongranghoe.controller;
 
 import com.example.myeongranghoe.dto.UserResponse;
+import com.example.myeongranghoe.service.AuthSessionService;
 import com.example.myeongranghoe.service.EmailVerificationService;
 import com.example.myeongranghoe.service.UserService;
 import jakarta.validation.Valid;
@@ -24,10 +25,15 @@ import java.util.Map;
 public class AuthController {
     private final EmailVerificationService emailVerificationService;
     private final UserService userService;
+    private final AuthSessionService authSessionService;
 
-    public AuthController(EmailVerificationService emailVerificationService, UserService userService) {
+    public AuthController(
+            EmailVerificationService emailVerificationService,
+            UserService userService,
+            AuthSessionService authSessionService) {
         this.emailVerificationService = emailVerificationService;
         this.userService = userService;
+        this.authSessionService = authSessionService;
     }
 
     @PostMapping("/send-verification-code")
@@ -89,20 +95,24 @@ public class AuthController {
                 request.bio(),
                 request.interests()
         ));
+        String token = authSessionService.issueToken(user.email());
         return ResponseEntity.ok(Map.of(
                 "success", true,
                 "message", "회원가입이 완료되었어요.",
-                "user", user
+                "user", user,
+                "accessToken", token
         ));
     }
 
     @PostMapping("/login")
     public ResponseEntity<Map<String, Object>> login(@Valid @RequestBody LoginRequest request) {
         UserResponse user = userService.login(request.email(), request.password());
+        String token = authSessionService.issueToken(user.email());
         return ResponseEntity.ok(Map.of(
                 "success", true,
                 "message", "로그인되었어요.",
-                "user", user
+                "user", user,
+                "accessToken", token
         ));
     }
 

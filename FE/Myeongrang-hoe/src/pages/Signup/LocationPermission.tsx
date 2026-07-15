@@ -30,7 +30,7 @@ export default function LocationPermission() {
     setError('')
     setSubmitting(true)
     try {
-      const user = await signupWithApi({
+      const { user } = await signupWithApi({
         email,
         password,
         name,

@@ -1,5 +1,6 @@
+import { createFundingApi, fetchFundings, getAccessToken, joinFundingApi, type ApiFunding } from '../lib/api'
 import { getDB, mutate } from './db'
-import { CHECKLIST_ITEMS, type FundingRecord, type UserRecord } from './schema'
+import { CHECKLIST_ITEMS, type FundingRecord, type RiskLevel, type UserRecord } from './schema'
 
 export { CHECKLIST_ITEMS }
 
@@ -221,6 +222,55 @@ export function markNotificationsSeen(email: string) {
 
 // ---------- fundings ----------
 
+function mapApiFunding(f: ApiFunding): FundingRecord {
+  const risk: RiskLevel = f.aiRisk === '높음' || f.aiRisk === '중간' || f.aiRisk === '낮음' ? f.aiRisk : '낮음'
+  return {
+    id: f.id,
+    category: f.category,
+    title: f.title,
+    locationName: f.locationName,
+    address: f.address,
+    lat: f.lat,
+    lng: f.lng,
+    meetAt: f.meetAt ?? '',
+    meetTimeText: f.meetTimeText ?? '',
+    deadlineAt: f.deadlineAt ?? '',
+    deadlineText: f.deadlineText ?? '',
+    targetCount: f.targetCount,
+    fee: f.fee,
+    fillerParticipants: f.fillerParticipants,
+    participants: f.participants ?? [],
+    description: f.description,
+    hostEmail: f.hostEmail,
+    aiRisk: risk,
+    best: f.best,
+    createdAt: f.createdAt,
+  }
+}
+
+function upsertLocalFunding(record: FundingRecord) {
+  mutate((d) => {
+    const idx = d.fundings.findIndex((x) => x.id === record.id)
+    if (idx >= 0) d.fundings[idx] = record
+    else d.fundings.unshift(record)
+    d.nextFundingId = Math.max(d.nextFundingId, record.id + 1)
+  })
+}
+
+/** 서버 펀딩 목록을 로컬 스토어에 동기화 (실패 시 로컬 유지) */
+export async function syncFundingsFromServer(params?: { lat?: number; lng?: number; radiusKm?: number }) {
+  try {
+    const list = await fetchFundings(params)
+    mutate((d) => {
+      d.fundings = list.map(mapApiFunding)
+      d.nextFundingId = list.reduce((m, f) => Math.max(m, f.id + 1), 1)
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function joinFunding(fundingId: number, email: string) {
   mutate((d) => {
     const f = d.fundings.find((x) => x.id === fundingId)
@@ -236,6 +286,14 @@ export function joinFunding(fundingId: number, email: string) {
     const user = d.users[email]
     if (user) user.participationCount += 1
   })
+
+  if (getAccessToken()) {
+    void joinFundingApi(fundingId)
+      .then((api) => upsertLocalFunding(mapApiFunding(api)))
+      .catch(() => {
+        // keep optimistic local state
+      })
+  }
 }
 
 export function leaveFunding(fundingId: number, email: string) {
@@ -295,6 +353,35 @@ export function createFunding(input: FundingInput & { hostEmail: string }): numb
       createdAt: Date.now(),
     })
   })
+
+  if (getAccessToken()) {
+    void createFundingApi({
+      category: input.category,
+      title: input.title,
+      description: input.description,
+      address: input.address,
+      locationName: input.locationName,
+      lat: input.lat,
+      lng: input.lng,
+      meetAt: input.meetAt,
+      meetTimeText: input.meetTimeText,
+      deadlineAt: input.deadlineAt,
+      deadlineText: input.deadlineText,
+      targetCount: input.targetCount,
+      fee: input.fee,
+    })
+      .then((api) => {
+        mutate((d) => {
+          d.fundings = d.fundings.filter((f) => f.id !== newId)
+        })
+        upsertLocalFunding(mapApiFunding(api))
+        newId = api.id
+      })
+      .catch(() => {
+        // keep local draft funding
+      })
+  }
+
   return newId
 }
 
