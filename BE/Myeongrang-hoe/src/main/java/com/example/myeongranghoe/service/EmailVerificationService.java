@@ -37,13 +37,14 @@ public class EmailVerificationService {
         store.put(normalizedEmail, new VerificationEntry(code, expiresAt));
 
         boolean delivered = sendMail(normalizedEmail, code);
+        boolean exposeCode = !delivered;
         String message = delivered
                 ? "인증번호를 메일로 전송했어요."
                 : (hasSmtpCredentials()
                     ? "인증번호를 생성했지만 메일 전송에 실패했어요. SMTP 설정을 다시 확인해주세요."
                     : "인증번호를 생성했어요. 현재는 SMTP 인증 정보가 없어 개발 모드로 응답하고 있습니다. MAIL_USERNAME와 MAIL_PASSWORD를 설정하면 실제 메일이 발송됩니다.");
         return new VerificationResult(
-                code,
+                exposeCode ? code : null,
                 delivered,
                 message,
                 300
@@ -60,7 +61,12 @@ public class EmailVerificationService {
             store.remove(normalizedEmail);
             return false;
         }
-        return entry.code().equals(code.trim());
+        if (!entry.code().equals(code.trim())) {
+            return false;
+        }
+        // One-time use: drop after successful verification.
+        store.remove(normalizedEmail);
+        return true;
     }
 
     private boolean hasSmtpCredentials() {

@@ -24,13 +24,16 @@ public class AuthController {
     @PostMapping("/send-verification-code")
     public ResponseEntity<Map<String, Object>> sendVerificationCode(@Valid @RequestBody EmailRequest request) {
         var result = emailVerificationService.sendVerificationCode(request.email());
-        return ResponseEntity.ok(Map.of(
-                "success", true,
-                "message", result.message(),
-                "code", result.code(),
-                "delivered", result.delivered(),
-                "expiresInSeconds", result.expiresInSeconds()
-        ));
+        // LinkedHashMap allows null "code" when SMTP delivered the mail (do not expose OTP).
+        var body = new java.util.LinkedHashMap<String, Object>();
+        body.put("success", true);
+        body.put("message", result.message());
+        body.put("delivered", result.delivered());
+        body.put("expiresInSeconds", result.expiresInSeconds());
+        if (result.code() != null) {
+            body.put("code", result.code());
+        }
+        return ResponseEntity.ok(body);
     }
 
     @PostMapping("/verify-code")
