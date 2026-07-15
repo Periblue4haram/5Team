@@ -19,7 +19,7 @@ import {
   updateLastLocation,
 } from '../../store/actions'
 import { distanceKm, type LatLng } from '../../lib/geo'
-import { useKakao } from '../../lib/kakao'
+import { formatKakaoError, relayoutMap, useKakao } from '../../lib/kakao'
 
 const MAP_HEIGHT = 343
 
@@ -99,22 +99,34 @@ export default function Home() {
     return sorted.filter((f) => f.distanceKm <= nearbyRadiusKm)
   }, [sorted])
 
-  // 지도에는 항상 전체 펀딩이 다 보이도록 영역을 맞춘다 (하나라도 화면 밖으로 누락되지 않게)
-  // mapInstance는 <Map>의 onCreate가 비동기로 호출된 뒤에야 채워지므로, state로 두어야
-  // 맵이 준비된 시점에 이 effect가 다시 실행된다 (ref로는 재실행이 안 돼 마커 누락 버그가 났었음).
+  // 지도에는 전체 펀딩이 보이도록 bounds 맞춤.
+  // mapInstance 는 onCreate 이후에만 채워지므로 state 로 보관한다.
   useEffect(() => {
-    if (!mapInstance || kakaoLoading || locating) return
+    if (!mapInstance || kakaoLoading || kakaoError) return
+    relayoutMap(mapInstance)
     const bounds = new kakao.maps.LatLngBounds()
     bounds.extend(new kakao.maps.LatLng(center.lat, center.lng))
     sorted.forEach((f) => bounds.extend(new kakao.maps.LatLng(f.lat, f.lng)))
     mapInstance.setBounds(bounds, 80, 40, 40, 40)
-  }, [sorted, center, kakaoLoading, locating, mapInstance])
+  }, [sorted, center, kakaoLoading, kakaoError, mapInstance])
+
+  // 위치 갱신 시 중심 이동
+  useEffect(() => {
+    if (!mapInstance || !myLocation) return
+    mapInstance.setCenter(new kakao.maps.LatLng(myLocation.lat, myLocation.lng))
+    relayoutMap(mapInstance)
+  }, [mapInstance, myLocation?.lat, myLocation?.lng])
 
   const almostThere = sorted.find((f) => f.targetCount - currentCountOf(f) === 1)
   const selected = sorted.find((f) => f.id === selectedId)
-  const showLoading = locating || kakaoLoading
-  const showMapError = !showLoading && !!kakaoError
+  // 위치 수신 때문에 지도를 숨기지 않는다. SDK 로딩만 오버레이.
+  const showSdkLoading = kakaoLoading
+  const showMapError = !kakaoLoading && !!kakaoError
   const listItems = nearbyFundings.length > 0 ? nearbyFundings : sorted
+  const zoomPosition =
+    typeof kakao !== 'undefined' && kakao?.maps?.ControlPosition
+      ? kakao.maps.ControlPosition.RIGHT
+      : undefined
 
   return (
     <div className="relative flex h-screen flex-col overflow-hidden bg-white">
@@ -123,24 +135,32 @@ export default function Home() {
       <main className="flex-1 overflow-y-auto">
         <div
           className="relative overflow-hidden bg-[var(--primary-tint)]"
-          style={{ height: MAP_HEIGHT }}
+          style={{ height: MAP_HEIGHT, minHeight: MAP_HEIGHT }}
         >
-          {showLoading && (
+          {showSdkLoading && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--primary-tint)]">
-              <p className="text-[13px] font-medium text-[var(--label)]">
-                내 위치와 지도를 불러오는 중...
-              </p>
+              <p className="text-[13px] font-medium text-[var(--label)]">지도를 불러오는 중...</p>
             </div>
           )}
 
-          {!showLoading && !kakaoError && (
+          {/* SDK 준비되면 즉시 렌더 (위치 대기와 분리 — 빈 화면/타일 깨짐 방지) */}
+          {!kakaoError && (
             <Map
+              id="home-kakao-map"
               center={center}
+              isPanto
               level={6}
               style={{ width: '100%', height: '100%' }}
-              onCreate={setMapInstance}
+              onCreate={(map) => {
+                setMapInstance(map)
+                // 컨테이너 크기가 잡힌 뒤 타일 다시 그리기
+                requestAnimationFrame(() => {
+                  relayoutMap(map)
+                  window.setTimeout(() => relayoutMap(map), 100)
+                })
+              }}
             >
-              <ZoomControl position={kakao.maps.ControlPosition.RIGHT} />
+              {zoomPosition != null && <ZoomControl position={zoomPosition} />}
 
               <CustomOverlayMap position={center} yAnchor={0.5} xAnchor={0.5}>
                 <div className="size-[16px] rounded-full border-2 border-white bg-[var(--blue-deep)] shadow-[0px_0px_0px_6px_rgba(17,106,212,0.2)]" />
@@ -159,9 +179,13 @@ export default function Home() {
 
           {showMapError && (
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-[var(--primary-tint)] px-[24px] text-center">
-              <p className="text-[14px] font-semibold text-[var(--heading)]">카카오맵 SDK를 불러오지 못했습니다.</p>
-              <p className="mt-[6px] text-[12px] leading-[18px] text-[var(--label)]">
-                브라우저 설정이나 네트워크 차단으로 카카오 스크립트가 막히면 지도가 뜨지 않을 수 있어요. 잠시 후 다시 시도해 주세요.
+              <p className="text-[14px] font-semibold text-[var(--heading)]">카카오맵을 불러오지 못했습니다</p>
+              <p className="mt-[8px] text-[12px] leading-[18px] text-[var(--label)]">
+                {formatKakaoError(kakaoError)}
+              </p>
+              <p className="mt-[10px] text-[11px] leading-[16px] text-[var(--border)]">
+                Kakao Developers → 내 애플리케이션 → 앱 키(JavaScript 키) · 플랫폼에
+                localhost, 127.0.0.1 등록 후 확인하세요.
               </p>
             </div>
           )}
@@ -175,7 +199,13 @@ export default function Home() {
             <img src={locateBtn} alt="" className="size-[47px]" />
           </button>
 
-          {usingFallback && !showLoading && (
+          {locating && !kakaoError && (
+            <span className="absolute left-[17px] top-[13px] z-10 rounded-full bg-white/90 px-[11px] py-[5px] text-[11px] font-bold text-[var(--label)]">
+              위치 확인 중...
+            </span>
+          )}
+
+          {usingFallback && !locating && !kakaoError && (
             <span className="absolute left-[17px] top-[13px] z-10 rounded-full bg-white/90 px-[11px] py-[5px] text-[11px] font-bold text-[var(--label)]">
               기준 위치: 명지대 인문캠퍼스
             </span>

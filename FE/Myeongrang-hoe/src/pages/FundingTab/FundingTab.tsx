@@ -233,14 +233,29 @@ export default function FundingTab() {
           ))}
 
           <div className="mt-[13px] h-[160px] w-full overflow-hidden rounded-[4px] bg-[var(--hairline)]">
-            {!kakaoLoading && !kakaoError && (
+            {kakaoError ? (
+              <div className="flex h-full items-center justify-center px-3 text-center text-[12px] text-[var(--label)]">
+                지도를 불러오지 못했어요
+              </div>
+            ) : (
               <Map
                 center={{ lat: funding.lat, lng: funding.lng }}
                 level={4}
                 scrollwheel={false}
                 style={{ width: '100%', height: '100%' }}
+                onCreate={(map) => {
+                  requestAnimationFrame(() => {
+                    try {
+                      map.relayout()
+                    } catch {
+                      // ignore
+                    }
+                  })
+                }}
               >
-                <MapMarker position={{ lat: funding.lat, lng: funding.lng }} />
+                {!kakaoLoading && (
+                  <MapMarker position={{ lat: funding.lat, lng: funding.lng }} />
+                )}
               </Map>
             )}
           </div>
