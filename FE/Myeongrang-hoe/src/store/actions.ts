@@ -100,6 +100,51 @@ export function loginWithPassword(email: string, password: string): boolean {
   return true
 }
 
+/** Mirror a backend user into local store so existing screens keep working. */
+export function applyServerUser(
+  user: {
+    email: string
+    name: string
+    campus: UserRecord['campus'] | string
+    major: string
+    age: string
+    bio: string
+    interests: string[]
+    sunlightScore?: number
+    noShowCount?: number
+    participationCount?: number
+    loginable?: boolean
+  },
+  options?: { password?: string; setCurrent?: boolean },
+) {
+  const campus: UserRecord['campus'] =
+    user.campus === '자연캠퍼스' ? '자연캠퍼스' : '인문캠퍼스'
+
+  mutate((d) => {
+    const existing = d.users[user.email]
+    d.users[user.email] = {
+      email: user.email,
+      password: options?.password ?? existing?.password ?? '',
+      name: user.name,
+      campus,
+      major: user.major ?? '',
+      age: user.age ?? '',
+      bio: user.bio ?? '',
+      interests: user.interests ?? [],
+      sunlightScore: user.sunlightScore ?? existing?.sunlightScore ?? 50,
+      noShowCount: user.noShowCount ?? existing?.noShowCount ?? 0,
+      participationCount: user.participationCount ?? existing?.participationCount ?? 0,
+      loginable: user.loginable ?? existing?.loginable ?? true,
+      notificationsSeenAt: existing?.notificationsSeenAt ?? 0,
+      lastLat: existing?.lastLat,
+      lastLng: existing?.lastLng,
+    }
+    if (options?.setCurrent !== false) {
+      d.currentUserEmail = user.email
+    }
+  })
+}
+
 export function loginAsTestAccount(email: string) {
   mutate((d) => {
     d.currentUserEmail = email

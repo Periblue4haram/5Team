@@ -1,25 +1,70 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import locateBtn from '../../assets/home/locate-btn.svg'
-import { signUp } from '../../store/actions'
+import { signupWithApi } from '../../lib/api'
+import { applyServerUser, signUp } from '../../store/actions'
 import { clearDraft, getDraft } from '../../store/signupDraft'
 
 export default function LocationPermission() {
   const navigate = useNavigate()
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
 
-  function finish() {
+  async function finish() {
+    if (submitting) return
+
     const draft = getDraft()
-    signUp({
-      email: draft.email || `guest${Date.now()}@mju.ac.kr`,
-      password: draft.password || 'password',
-      name: draft.name || '새 학생',
-      campus: draft.campus,
-      major: draft.major,
-      age: draft.age,
-      bio: draft.bio,
-      interests: draft.interests,
-    })
-    clearDraft()
-    navigate('/')
+    const email = draft.email.trim().toLowerCase()
+    const password = draft.password
+    const name = draft.name.trim() || '새 학생'
+
+    if (!email) {
+      setError('이메일 인증 정보가 없어요. 처음부터 다시 진행해주세요.')
+      return
+    }
+    if (!password || password.length < 8) {
+      setError('비밀번호 정보가 없어요. 비밀번호 설정부터 다시 진행해주세요.')
+      return
+    }
+
+    setError('')
+    setSubmitting(true)
+    try {
+      const user = await signupWithApi({
+        email,
+        password,
+        name,
+        campus: draft.campus,
+        major: draft.major,
+        age: draft.age,
+        bio: draft.bio,
+        interests: draft.interests,
+      })
+      applyServerUser(user, { password, setCurrent: true })
+      clearDraft()
+      navigate('/')
+    } catch (err) {
+      // Offline fallback keeps local demo usable if API is down
+      const message = err instanceof Error ? err.message : '회원가입에 실패했어요.'
+      if (message.includes('Failed to fetch') || message.includes('NetworkError')) {
+        signUp({
+          email,
+          password,
+          name,
+          campus: draft.campus,
+          major: draft.major,
+          age: draft.age,
+          bio: draft.bio,
+          interests: draft.interests,
+        })
+        clearDraft()
+        navigate('/')
+        return
+      }
+      setError(message)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -42,20 +87,26 @@ export default function LocationPermission() {
         모집이 임박하면 알림을 보내드려요
       </p>
 
+      {error && <p className="mt-[16px] text-center text-[13px] font-medium text-[var(--red)]">{error}</p>}
+
       <div className="flex-1" />
 
       <button
         type="button"
         onClick={finish}
-        className="mb-[16px] flex h-[52px] w-full items-center justify-center rounded-[4px] bg-[var(--primary)]"
+        disabled={submitting}
+        className="mb-[16px] flex h-[52px] w-full items-center justify-center rounded-[4px] bg-[var(--primary)] disabled:opacity-40"
       >
-        <span className="text-[16px] font-medium text-[var(--on-primary)]">위치 권한 허용하기</span>
+        <span className="text-[16px] font-medium text-[var(--on-primary)]">
+          {submitting ? '가입 처리 중...' : '위치 권한 허용하기'}
+        </span>
       </button>
 
       <button
         type="button"
         onClick={finish}
-        className="mb-[40px] text-[13px] text-[var(--border)]"
+        disabled={submitting}
+        className="mb-[40px] text-[13px] text-[var(--border)] disabled:opacity-40"
       >
         나중에 할게요
       </button>

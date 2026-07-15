@@ -1,40 +1,67 @@
 package com.example.myeongranghoe.service;
 
+import com.example.myeongranghoe.domain.EmailVerification;
+import com.example.myeongranghoe.repository.EmailVerificationRepository;
+import com.example.myeongranghoe.repository.UserAccountRepository;
 import jakarta.mail.internet.MimeMessage;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Random;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class EmailVerificationService {
+    private static final int CODE_TTL_MINUTES = 5;
+    private static final int VERIFIED_TTL_MINUTES = 30;
+
     private final JavaMailSender javaMailSender;
+    private final EmailVerificationRepository emailVerificationRepository;
+    private final UserAccountRepository userAccountRepository;
+    private final PasswordEncoder passwordEncoder;
     private final String mailUsername;
     private final String mailPassword;
-    private final Map<String, VerificationEntry> store = new ConcurrentHashMap<>();
     private final Random random = new Random();
 
     public EmailVerificationService(
             JavaMailSender javaMailSender,
+            EmailVerificationRepository emailVerificationRepository,
+            UserAccountRepository userAccountRepository,
+            PasswordEncoder passwordEncoder,
             @Value("${spring.mail.username:}") String mailUsername,
             @Value("${spring.mail.password:}") String mailPassword) {
         this.javaMailSender = javaMailSender;
+        this.emailVerificationRepository = emailVerificationRepository;
+        this.userAccountRepository = userAccountRepository;
+        this.passwordEncoder = passwordEncoder;
         this.mailUsername = mailUsername;
         this.mailPassword = mailPassword;
     }
 
+    @Transactional
     public VerificationResult sendVerificationCode(String email) {
-        String normalizedEmail = email.trim().toLowerCase(Locale.ROOT);
+        String normalizedEmail = normalize(email);
+        if (userAccountRepository.existsByEmail(normalizedEmail)) {
+            throw new IllegalArgumentException("이미 가입된 이메일이에요. 로그인 탭을 이용해주세요.");
+        }
+
         String code = String.format("%06d", 100000 + random.nextInt(900000));
-        Instant expiresAt = Instant.now().plus(5, ChronoUnit.MINUTES);
-        store.put(normalizedEmail, new VerificationEntry(code, expiresAt));
+        Instant expiresAt = Instant.now().plus(CODE_TTL_MINUTES, ChronoUnit.MINUTES);
+
+        EmailVerification verification = emailVerificationRepository.findById(normalizedEmail)
+                .orElseGet(EmailVerification::new);
+        verification.setEmail(normalizedEmail);
+        verification.setCodeHash(passwordEncoder.encode(code));
+        verification.setCodeExpiresAt(expiresAt);
+        verification.setVerified(false);
+        verification.setVerifiedExpiresAt(null);
+        emailVerificationRepository.save(verification);
 
         boolean delivered = sendMail(normalizedEmail, code);
         boolean exposeCode = !delivered;
@@ -47,26 +74,50 @@ public class EmailVerificationService {
                 exposeCode ? code : null,
                 delivered,
                 message,
-                300
+                CODE_TTL_MINUTES * 60
         );
     }
 
+    @Transactional
     public boolean verifyCode(String email, String code) {
-        String normalizedEmail = email.trim().toLowerCase(Locale.ROOT);
-        VerificationEntry entry = store.get(normalizedEmail);
-        if (entry == null) {
+        String normalizedEmail = normalize(email);
+        EmailVerification verification = emailVerificationRepository.findById(normalizedEmail).orElse(null);
+        if (verification == null || verification.getCodeHash() == null || verification.getCodeExpiresAt() == null) {
             return false;
         }
-        if (Instant.now().isAfter(entry.expiresAt())) {
-            store.remove(normalizedEmail);
+        if (Instant.now().isAfter(verification.getCodeExpiresAt())) {
+            emailVerificationRepository.delete(verification);
             return false;
         }
-        if (!entry.code().equals(code.trim())) {
+        if (!passwordEncoder.matches(code.trim(), verification.getCodeHash())) {
             return false;
         }
-        // One-time use: drop after successful verification.
-        store.remove(normalizedEmail);
+
+        verification.setVerified(true);
+        verification.setVerifiedExpiresAt(Instant.now().plus(VERIFIED_TTL_MINUTES, ChronoUnit.MINUTES));
+        verification.setCodeHash(null);
+        verification.setCodeExpiresAt(null);
+        emailVerificationRepository.save(verification);
         return true;
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isEmailVerifiedForSignup(String email) {
+        String normalizedEmail = normalize(email);
+        EmailVerification verification = emailVerificationRepository.findById(normalizedEmail).orElse(null);
+        if (verification == null || !verification.isVerified() || verification.getVerifiedExpiresAt() == null) {
+            return false;
+        }
+        return Instant.now().isBefore(verification.getVerifiedExpiresAt());
+    }
+
+    @Transactional
+    public void clearVerification(String email) {
+        emailVerificationRepository.deleteById(normalize(email));
+    }
+
+    private static String normalize(String email) {
+        return email.trim().toLowerCase(Locale.ROOT);
     }
 
     private boolean hasSmtpCredentials() {
@@ -100,6 +151,4 @@ public class EmailVerificationService {
     }
 
     public record VerificationResult(String code, boolean delivered, String message, int expiresInSeconds) {}
-
-    private record VerificationEntry(String code, Instant expiresAt) {}
 }

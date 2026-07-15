@@ -1,6 +1,22 @@
 spring:
   application:
     name: Myeongrang-hoe
+  datasource:
+    url: ${DB_URL:jdbc:h2:file:./data/myeongrang;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;AUTO_SERVER=TRUE}
+    driver-class-name: org.h2.Driver
+    username: ${DB_USERNAME:sa}
+    password: ${DB_PASSWORD:}
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
   mail:
     host: ${MAIL_HOST:smtp.gmail.com}
     port: ${MAIL_PORT:587}
@@ -13,3 +29,7 @@ spring:
 
 server:
   port: ${SERVER_PORT:8080}
+
+logging:
+  level:
+    org.hibernate.SQL: warn

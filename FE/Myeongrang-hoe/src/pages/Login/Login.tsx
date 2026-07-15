@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { isEmailTaken, loginAsTestAccount, loginWithPassword } from '../../store/actions'
+import { applyServerUser, loginAsTestAccount, loginWithPassword } from '../../store/actions'
+import { loginWithApi, sendVerificationCode, verifyEmailCode } from '../../lib/api'
 import { TEST_ACCOUNTS } from '../../store/schema'
 import { patchDraft } from '../../store/signupDraft'
 
 type Mode = 'login' | 'signup'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8080'
 const SCHOOL_EMAIL_RE = /^[A-Za-z0-9._%+\-]+@([A-Za-z0-9-]+\.)+ac\.kr$/i
 
 export default function Login() {
@@ -16,18 +16,37 @@ export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loginError, setLoginError] = useState('')
+  const [loggingIn, setLoggingIn] = useState(false)
 
   const [signupEmail, setSignupEmail] = useState('')
   const [code, setCode] = useState('')
   const [signupError, setSignupError] = useState('')
   const [verificationMessage, setVerificationMessage] = useState('')
   const [sendingCode, setSendingCode] = useState(false)
+  const [verifying, setVerifying] = useState(false)
 
-  function handleLogin() {
-    if (loginWithPassword(email, password)) {
+  async function handleLogin() {
+    const normalizedEmail = email.trim().toLowerCase()
+    if (!normalizedEmail || !password) {
+      setLoginError('이메일과 비밀번호를 입력해주세요.')
+      return
+    }
+
+    setLoginError('')
+    setLoggingIn(true)
+    try {
+      const user = await loginWithApi(normalizedEmail, password)
+      applyServerUser(user, { password, setCurrent: true })
       navigate('/')
-    } else {
-      setLoginError('이메일 또는 비밀번호가 올바르지 않아요. 테스트 계정 버튼을 이용해보세요.')
+    } catch (error) {
+      // Fallback: local seed accounts when backend is offline
+      if (loginWithPassword(normalizedEmail, password)) {
+        navigate('/')
+        return
+      }
+      setLoginError(error instanceof Error ? error.message : '로그인에 실패했어요.')
+    } finally {
+      setLoggingIn(false)
     }
   }
 
@@ -50,28 +69,15 @@ export default function Login() {
       setSignupError('학교 이메일 형식만 사용할 수 있어요. 예: example@mju.ac.kr')
       return
     }
-    if (isEmailTaken(normalizedEmail)) {
-      setSignupError('이미 가입된 이메일이에요. 로그인 탭을 이용해주세요.')
-      return
-    }
 
     setSignupError('')
     setVerificationMessage('')
     setSendingCode(true)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/send-verification-code`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: normalizedEmail }),
-      })
-      const payload = await response.json().catch(() => null)
-      if (!response.ok) {
-        throw new Error(payload?.message ?? '인증번호 전송에 실패했어요.')
-      }
-
-      const detail = payload?.code ? ` 테스트 모드에서는 인증번호 ${payload.code} 를 입력할 수 있어요.` : ''
-      setVerificationMessage(`${payload?.message ?? '인증번호를 발송했어요.'}${detail}`)
+      const result = await sendVerificationCode(normalizedEmail)
+      const detail = result.code ? ` 테스트 모드에서는 인증번호 ${result.code} 를 입력할 수 있어요.` : ''
+      setVerificationMessage(`${result.message}${detail}`)
     } catch (error) {
       setSignupError(error instanceof Error ? error.message : '인증번호 전송에 실패했어요.')
     } finally {
@@ -89,28 +95,18 @@ export default function Login() {
       setSignupError('인증번호를 입력해주세요.')
       return
     }
-    if (isEmailTaken(normalizedEmail)) {
-      setSignupError('이미 가입된 이메일이에요. 로그인 탭을 이용해주세요.')
-      return
-    }
 
     setSignupError('')
+    setVerifying(true)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/verify-code`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: normalizedEmail, code: code.trim() }),
-      })
-      const payload = await response.json().catch(() => null)
-      if (!response.ok || !payload?.verified) {
-        throw new Error(payload?.message ?? '인증번호가 올바르지 않아요.')
-      }
-
+      await verifyEmailCode(normalizedEmail, code.trim())
       patchDraft({ email: normalizedEmail })
       navigate('/signup/password')
     } catch (error) {
       setSignupError(error instanceof Error ? error.message : '인증에 실패했어요.')
+    } finally {
+      setVerifying(false)
     }
   }
 
@@ -207,9 +203,12 @@ export default function Login() {
           <button
             type="button"
             onClick={handleLogin}
-            className="flex h-[52px] w-full items-center justify-center rounded-[4px] bg-[var(--primary)]"
+            disabled={loggingIn}
+            className="flex h-[52px] w-full items-center justify-center rounded-[4px] bg-[var(--primary)] disabled:opacity-40"
           >
-            <span className="text-[16px] font-medium text-[var(--on-primary)]">로그인</span>
+            <span className="text-[16px] font-medium text-[var(--on-primary)]">
+              {loggingIn ? '로그인 중...' : '로그인'}
+            </span>
           </button>
 
           <div className="h-[16px]" />
@@ -267,9 +266,10 @@ export default function Login() {
             <button
               type="button"
               onClick={handleVerify}
-              className="shrink-0 rounded-[4px] border border-[var(--border)] px-[12px] py-[10px] text-[13px] font-medium text-[var(--heading)]"
+              disabled={verifying}
+              className="shrink-0 rounded-[4px] border border-[var(--border)] px-[12px] py-[10px] text-[13px] font-medium text-[var(--heading)] disabled:opacity-40"
             >
-              확인
+              {verifying ? '확인 중...' : '확인'}
             </button>
           </div>
           <p className="pt-[6px] text-[11px] text-[var(--border)]">
@@ -281,11 +281,13 @@ export default function Login() {
 
           <button
             type="button"
-            disabled={!signupEmail.trim() || !isSchoolEmail(signupEmail) || !code.trim()}
+            disabled={verifying || !signupEmail.trim() || !isSchoolEmail(signupEmail) || !code.trim()}
             onClick={handleVerify}
             className="flex h-[52px] w-full items-center justify-center rounded-[4px] bg-[var(--primary)] disabled:opacity-40"
           >
-            <span className="text-[16px] font-medium text-[var(--on-primary)]">인증하고 시작하기</span>
+            <span className="text-[16px] font-medium text-[var(--on-primary)]">
+              {verifying ? '확인 중...' : '인증하고 시작하기'}
+            </span>
           </button>
 
           <div className="h-[16px]" />
