@@ -91,11 +91,11 @@ public class Funding {
     private boolean matched = false;
 
     /** 호스트가 조기 마감/취소한 경우 참여 불가 */
-    @Column(name = "closed", nullable = false)
+    @Column(name = "closed", nullable = false, columnDefinition = "boolean default false")
     private boolean closed = false;
 
     /** 성사 후 만남 일정 확정 여부 */
-    @Column(name = "schedule_confirmed", nullable = false)
+    @Column(name = "schedule_confirmed", nullable = false, columnDefinition = "boolean default false")
     private boolean scheduleConfirmed = false;
 
     @Column(name = "created_at", nullable = false)
