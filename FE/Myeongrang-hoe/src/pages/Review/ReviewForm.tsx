@@ -269,9 +269,12 @@ export default function ReviewForm() {
         <button
           type="button"
           onClick={handleSubmitAll}
-          className="flex h-[52px] flex-1 items-center justify-center rounded-[4px] bg-[var(--primary)]"
+          disabled={submitting}
+          className="flex h-[52px] flex-1 items-center justify-center rounded-[4px] bg-[var(--primary)] disabled:opacity-40"
         >
-          <span className="text-[16px] font-medium text-[var(--on-primary)]">후기 등록하기</span>
+          <span className="text-[16px] font-medium text-[var(--on-primary)]">
+            {submitting ? '등록 중...' : '후기 등록하기'}
+          </span>
         </button>
       </div>
     </div>
