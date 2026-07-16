@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import BottomNav from '../../components/BottomNav'
 import PageHeader from '../../components/PageHeader'
+import FundingCover from '../../components/FundingCover'
 import { useDB } from '../../store/db'
 import {
   currentCountOf,
@@ -63,20 +64,13 @@ export default function MyPosts() {
                 onKeyDown={(e) => e.key === 'Enter' && navigate(`/funding/${p.id}`)}
                 className="flex w-full cursor-pointer gap-[12px] rounded-[4px] border border-[var(--border-card)] p-[12px] shadow-[0px_4px_6px_rgba(0,0,0,0.08)]"
               >
-                <div
-                  className="size-[76px] shrink-0 overflow-hidden rounded-[4px]"
-                  style={
-                    p.coverImage
-                      ? undefined
-                      : {
-                          backgroundImage: 'linear-gradient(135deg, #2777e7 0%, #5d90d8 71.4%)',
-                        }
-                  }
-                >
-                  {p.coverImage && (
-                    <img src={p.coverImage} alt="" className="h-full w-full object-cover" />
-                  )}
-                </div>
+                <FundingCover
+                  source={p}
+                  size="thumb"
+                  className="size-[76px] shrink-0 rounded-[4px]"
+                  imgClassName="h-full w-full object-cover"
+                  alt={p.locationName}
+                />
                 <div className="flex min-w-0 flex-1 flex-col gap-[4px]">
                   <span
                     className={`w-fit rounded-[11px] px-[8px] py-[3px] text-[11px] font-bold ${

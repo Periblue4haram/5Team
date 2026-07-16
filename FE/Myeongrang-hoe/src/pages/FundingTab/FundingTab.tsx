@@ -22,6 +22,7 @@ import {
   syncFundingDetail,
   toggleWishlist,
 } from '../../store/actions'
+import FundingCover from '../../components/FundingCover'
 import { useKakao } from '../../lib/kakao'
 import shareBtn from '../../assets/fundingtab/share-btn.svg'
 import avatarPro from '../../assets/fundingtab/avatar-pro.svg'
@@ -132,25 +133,21 @@ export default function FundingTab() {
       </header>
 
       <main className="flex-1 overflow-y-auto">
-        <div
-          className="relative h-[236px] overflow-hidden bg-[var(--hairline)]"
-          style={
-            funding.coverImage
-              ? undefined
-              : { backgroundImage: 'linear-gradient(149.6deg, #72abfa 0%, #2777e7 71.4%)' }
-          }
+        <FundingCover
+          source={funding}
+          size="hero"
+          className="h-[236px] w-full"
+          alt={funding.locationName || funding.title}
         >
-          {funding.coverImage && (
-            <img
-              src={funding.coverImage}
-              alt=""
-              className="absolute inset-0 h-full w-full object-cover"
-            />
-          )}
           <span className="absolute bottom-[18px] left-[17px] z-[1] rounded-full bg-white px-[13px] py-[5px] text-[12px] font-bold text-[var(--red)]">
             {funding.best ? '인기 펀딩' : funding.category}
           </span>
-        </div>
+          {!funding.coverImage && (
+            <span className="absolute bottom-[18px] right-[17px] z-[1] rounded-full bg-black/45 px-[10px] py-[4px] text-[11px] font-medium text-white">
+              위치 기반 지도
+            </span>
+          )}
+        </FundingCover>
 
         <div className="flex flex-col gap-[4px] px-[17px] pt-[21px] pb-[4px]">
           <p className="text-[30px] font-bold text-[var(--heading)]">{funding.title}</p>

@@ -272,6 +272,9 @@ export default function MyPage() {
                     foot: `${current}/${g.targetCount}명 참여`,
                     best: g.best,
                     expired: isExpired(g),
+                    coverImage: g.coverImage,
+                    lat: g.lat,
+                    lng: g.lng,
                   }}
                   to={`/funding/${g.id}`}
                 />
